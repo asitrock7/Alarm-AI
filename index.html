@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offline Voice Tasker</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #eceff1; padding: 20px; display: flex; justify-content: center; }
+        .app-card { background: white; width: 100%; max-width: 400px; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        h2 { color: #2c3e50; text-align: center; }
+        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        .add-btn { background: #3498db; color: white; }
+        .add-btn:hover { background: #2980b9; }
+        .task-list { margin-top: 20px; }
+        .task-item { background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border-left: 5px solid #3498db; }
+        .complete-btn { width: auto; background: #2ecc71; color: white; padding: 8px 15px; }
+    </style>
+</head>
+<body>
+
+<div class="app-card">
+    <h2>Voice Reminders</h2>
+    <input type="text" id="taskName" placeholder="What needs to be done?">
+    <input type="datetime-local" id="taskTime">
+    <button class="add-btn" onclick="addTask()">Set Task & Alarm</button>
+    <div id="taskList" class="task-list"></div>
+</div>
+
+<script>
+    let tasks = JSON.parse(localStorage.getItem('voiceTasks')) || [];
+    const synth = window.speechSynthesis;
+    let alarmInterval;
+
+    // Register Service Worker for Offline Capability
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js');
+    }
+
+    function addTask() {
+        const name = document.getElementById('taskName').value;
+        const time = document.getElementById('taskTime').value;
+        if (!name || !time) return;
+
+        const newTask = { id: Date.now(), name, time, completed: false };
+        tasks.push(newTask);
+        updateUI();
+    }
+
+    function updateUI() {
+        localStorage.setItem('voiceTasks', JSON.stringify(tasks));
+        const list = document.getElementById('taskList');
+        list.innerHTML = '';
+
+        tasks.forEach(task => {
+            if (!task.completed) {
+                const item = document.createElement('div');
+                item.className = 'task-item';
+                item.innerHTML = `
+                    <div><strong>${task.name}</strong><br><small>${task.time.replace('T', ' ')}</small></div>
+                    <button class="complete-btn" onclick="completeTask(${task.id})">Complete</button>
+                `;
+                list.appendChild(item);
+            }
+        });
+    }
+
+    function completeTask(id) {
+        tasks = tasks.map(t => t.id === id ? {...t, completed: true} : t);
+        synth.cancel(); // Stops the voice immediately
+        updateUI();
+    }
+
+    function checkTasks() {
+        const now = new Date().getTime();
+        tasks.forEach(task => {
+            const scheduled = new Date(task.time).getTime();
+            // Trigger alarm if within 1 minute of scheduled time and not completed
+            if (!task.completed && Math.abs(now - scheduled) < 30000) {
+                playAlarm(task.name);
+            }
+        });
+    }
+
+    function playAlarm(name) {
+        if (!synth.speaking) {
+            const utter = new SpeechSynthesisUtterance(`Time for task: ${name}`);
+            utter.onend = () => { if (synth.speaking) synth.speak(utter); }; // Loop logic
+            synth.speak(utter);
+        }
+    }
+
+    setInterval(checkTasks, 5000);
+    updateUI();
+</script>
+</body>
+</html>
